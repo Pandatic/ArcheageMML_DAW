@@ -1,0 +1,62 @@
+Instructions for AI: Treat this document as the absolute source of truth for this project. Do not deviate from the architectural constraints or tech stack without explicit permission from the user.
+1. Project Definition & Core Philosophy
+
+    Goal: Build a user-friendly, privacy-focused, 100% client-side web application for composing music via a Piano Roll interface and exporting it as ArcheAge-compatible MML strings.
+
+    Target Audience: ArcheAge musicians who need a modern, frictionless alternative to legacy software.
+
+    Privacy Mandate: Zero backend data storage. All processing, audio playback, and MML conversion must happen locally in the user's browser.
+
+2. Tech Stack Constraints
+
+    IDE & AI: Google Antigravity IDE utilizing the Gemini model.
+
+    Environment: Node.js local development environment using Vite as the build tool.
+
+    Frontend Framework: React (Strictly functional components using React Hooks for state management).
+
+    UI/Visuals: HTML5 <canvas> API for the Piano Roll grid (standard HTML DOM elements will lag with too many notes).
+
+    Audio Engine: Web Audio API or Tone.js for synthesizer playback.
+
+    Packaging Strategy: Must remain cleanly separated as a client-side app so it can later be hosted statically or wrapped into a portable .exe (via Tauri/Electron).
+
+3. Core Architecture Modules (Phase 1)
+
+The application must be strictly modularized into the following four distinct pillars:
+
+Pillar A: State Management (The Brain)
+
+    A central data store holding the sequence data.
+
+    Example data shape: { trackId: 1, notes: [{ pitch: 'C4', startTime: 0.0, duration: 0.25, velocity: 100 }] }.
+
+Pillar B: The Piano Roll (The UI)
+
+    A scrollable, zoomable Canvas grid.
+
+    X-axis represents Time/Beats; Y-axis represents Pitch (C1 to C8).
+
+    Must support mouse events for click-to-add, click-to-delete, drag-to-move, and drag-edge-to-resize.
+
+Pillar C: The Audio Player
+
+    Reads the State Management array.
+
+    Triggers Tone.js synths based on a sweeping visual playhead to provide real-time audio feedback.
+
+Pillar D: The MML Compiler (The Engine)
+
+    A pure, isolated JavaScript/TypeScript function that takes the State array and outputs a text string.
+
+    Must account for ArcheAge's 3-track polyphony limit, tempo limits, and specific octave shifting syntax.
+
+4. Strict AI Generation Rules (The "Meta" Rules)
+
+    Rule 1: No Monoliths. Never build the piano roll and the MML converter at the same time. Build one module at a time and wait for user verification via Artifacts before proceeding.
+
+    Rule 2: Logic Before UI. Build the state management array and the mathematical functions first. Prove the logic works via console logs before drawing pixels on the Canvas.
+
+    Rule 3: Isolate the Canvas. The Canvas rendering loop must be decoupled from the MML logic. The Canvas only "reads" the state array to draw rectangles.
+
+    Rule 4: Commenting Standard. Every function related to musical timing, grid snapping, or MML conversion must have detailed inline comments explaining the math.
