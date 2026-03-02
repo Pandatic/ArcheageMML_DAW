@@ -42,11 +42,14 @@ export function compileToMML(notesArray, bpm = 120) {
 
     // 2. Initialize 3 polyphonic tracks
     // ArcheAge's MML natively defaults to Octave 5 and Volume 127
-    // Prepend the Tempo (t) command exclusively to the very first track
+    // Find the true starting tempo from the first note that has one defined
+    const firstNoteWithBpm = sortedNotes.find(n => n.bpm !== undefined);
+    const initialBpm = firstNoteWithBpm ? firstNoteWithBpm.bpm : bpm;
+
     const mmlTracks = [
-        { string: `t${bpm}`, currentTime: 0, currentVolume: 127, currentOctave: 5, currentTempo: bpm },
-        { string: `t${bpm}`, currentTime: 0, currentVolume: 127, currentOctave: 5, currentTempo: bpm },
-        { string: `t${bpm}`, currentTime: 0, currentVolume: 127, currentOctave: 5, currentTempo: bpm }
+        { string: `t${initialBpm}`, currentTime: 0, currentVolume: 127, currentOctave: 5, currentTempo: initialBpm },
+        { string: `t${initialBpm}`, currentTime: 0, currentVolume: 127, currentOctave: 5, currentTempo: initialBpm },
+        { string: `t${initialBpm}`, currentTime: 0, currentVolume: 127, currentOctave: 5, currentTempo: initialBpm }
     ];
 
     sortedNotes.forEach(note => {
