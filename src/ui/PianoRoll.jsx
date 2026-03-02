@@ -89,6 +89,10 @@ export default function PianoRoll() {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
 
+        const exactHeight = (PITCHES.length * ROW_HEIGHT) + RULER_HEIGHT;
+        canvas.width = Math.min(totalCanvasBeats * BEAT_WIDTH, MAX_CANVAS_WIDTH);
+        canvas.height = exactHeight;
+
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -223,7 +227,7 @@ export default function PianoRoll() {
             ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
         }
 
-    }, [notes, activeNoteId, currentBeat, PITCHES, totalCanvasBeats, hoverState, pixelsPerBeat, selectedNoteIds, lassoBox]);
+    }, [notes, activeNoteId, currentBeat, PITCHES, totalCanvasBeats, hoverState, pixelsPerBeat, selectedNoteIds, lassoBox, window.innerWidth, state.visibleMinOctave, state.visibleMaxOctave]);
 
     const handleMouseDown = (e) => {
         if (e.button !== 0) return; // Ignore right/middle clicks to reserve for delete/other actions
@@ -475,6 +479,7 @@ export default function PianoRoll() {
 
     return (
         <canvas
+            key={state.visibleMinOctave + '-' + state.visibleMaxOctave}
             ref={canvasRef}
             width={Math.min(totalCanvasBeats * BEAT_WIDTH, MAX_CANVAS_WIDTH)}
             height={exactHeight}

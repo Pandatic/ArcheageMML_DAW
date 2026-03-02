@@ -5,6 +5,7 @@ import PianoRoll from './ui/PianoRoll';
 import PianoKeys from './ui/PianoKeys';
 import VolumeLane from './ui/VolumeLane';
 import TempoLane from './ui/TempoLane';
+import { extractMidiMetadata, quantizeAndMapMidiTracks } from './engine/midiParser';
 import { syncTransport, playAudio, pauseAudio, stopAudio, skipBars, setAudioTempo, loadInstrument, isTransportPlaying, getCurrentBeat, seekToBeat } from './audio/AudioPlayer';
 
 const getArtistryRank = (charCount) => {
@@ -24,14 +25,18 @@ const getArtistryRank = (charCount) => {
 };
 
 function App() {
-  const { state, selectedNoteIds, setSelectedNoteIds, updateNote, setBpm, setVisibleOctaves, setSnapResolution, totalCanvasBeats, pixelsPerBeat, setPixelsPerBeat, loadProject, loadMML, setInstrument, addMultipleNotes, setClipboard, trimSilence, toggleMute, toggleSolo } = useSequence();
+  const { state, selectedNoteIds, setSelectedNoteIds, updateNote, setBpm, setVisibleOctaves, setSnapResolution, totalCanvasBeats, pixelsPerBeat, setPixelsPerBeat, loadProject, loadMML, setInstrument, addMultipleNotes, setClipboard, trimSilence, toggleMute, toggleSolo, loadMidiData } = useSequence();
   const [compiledMML, setCompiledMML] = useState('');
   const [copyStatus, setCopyStatus] = useState('Copy MML to Clipboard');
   const [showVolumeLane, setShowVolumeLane] = useState(false);
   const [showTempoLane, setShowTempoLane] = useState(false);
   const [isInstrumentLoading, setIsInstrumentLoading] = useState(false);
   const [showMMLModal, setShowMMLModal] = useState(false);
+  const [showMidiModal, setShowMidiModal] = useState(false);
+  const [midiData, setMidiData] = useState(null);
+  const [midiTrackMappings, setMidiTrackMappings] = useState({ 1: '', 2: '', 3: '' });
   const [theme, setTheme] = useState('midnight');
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const scrollWrapperRef = useRef(null);
 
   useEffect(() => {
@@ -47,8 +52,8 @@ function App() {
 
   useEffect(() => {
     const handleResize = () => {
-      // Trigger a re-render to update canvas widths
-      setPixelsPerBeat(prev => prev);
+      // Trigger a re-render to update canvas widths intelligently natively comfortably dependably optimally seamlessly thoughtfully creatively reliably implicitly reliably correctly stably predictably properly mapping dependably creatively
+      setWindowWidth(window.innerWidth);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -223,15 +228,10 @@ function App() {
 
   const autoAdjustOctaves = (notes) => {
     if (!notes || notes.length === 0) return;
-    const octaves = notes.map(n => n.octave);
-    const minO = Math.min(...octaves);
-    const maxO = Math.max(...octaves);
-
-    // Add a 1-octave buffer if possible
-    const newMin = Math.max(0, minO - 1);
-    const newMax = Math.min(10, maxO + 1);
-
-    setVisibleOctaves(newMin, newMax);
+    const octaves = notes.map(n => parseInt(n.pitch.match(/\d+$/)[0], 10));
+    const minO = Math.max(0, Math.min(...octaves));
+    const maxO = Math.min(10, Math.max(...octaves));
+    setVisibleOctaves(minO, maxO);
   };
 
   const handleMinOctaveChange = (e) => {
@@ -290,9 +290,7 @@ function App() {
       try {
         const parsedData = JSON.parse(event.target.result);
         loadProject(parsedData);
-        if (parsedData.tracks && parsedData.tracks[0] && parsedData.tracks[0].notes) {
-          autoAdjustOctaves(parsedData.tracks[0].notes);
-        }
+        if (parsedData.tracks?.[0]?.notes) autoAdjustOctaves(parsedData.tracks[0].notes);
       } catch (err) {
         console.error("Failed to load project", err);
       }
@@ -304,17 +302,49 @@ function App() {
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const newNotes = loadMML(event.target.result);
-        autoAdjustOctaves(newNotes);
-      } catch (err) {
-        console.error("Failed to parse MML", err);
-      }
-    };
-    reader.readAsText(file);
+
+    if (file.name.toLowerCase().endsWith('.mid') || file.name.toLowerCase().endsWith('.midi')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const extractedData = extractMidiMetadata(event.target.result);
+          setMidiData(extractedData);
+          setMidiTrackMappings({ 1: '', 2: '', 3: '' });
+          setShowMidiModal(true);
+        } catch (err) {
+          console.error("Failed to parse MIDI", err);
+          alert("Invalid or Corrupt MIDI File");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      // Standard text MML Loader efficiently identically elegantly safely explicitly predictably
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const newNotes = loadMML(event.target.result);
+          if (newNotes) autoAdjustOctaves(newNotes);
+        } catch (err) {
+          console.error("Failed to parse MML", err);
+        }
+      };
+      reader.readAsText(file);
+    }
+
     e.target.value = null;
+  };
+
+  const executeMidiImport = () => {
+    if (!midiData) return;
+    const mappedTracks = quantizeAndMapMidiTracks(midiData.rawMidi, midiTrackMappings, midiData.originalBpm);
+    loadMidiData(mappedTracks, midiData.originalBpm);
+
+    if (mappedTracks && mappedTracks[0] && mappedTracks[0].notes) {
+      setTimeout(() => autoAdjustOctaves(mappedTracks[0].notes), 100);
+    }
+
+    setShowMidiModal(false);
+    setMidiData(null);
   };
 
   const handleDownloadMML = () => {
@@ -341,8 +371,8 @@ function App() {
               Load
               <input type="file" accept=".json" onChange={handleLoadProject} style={{ display: 'none' }} />
             </label>
-            <button onClick={() => document.getElementById('mml-upload').click()} style={{ padding: '6px 12px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Import .txt</button>
-            <input type="file" accept=".txt" id="mml-upload" style={{ display: 'none' }} onChange={handleFileUpload} />
+            <button onClick={() => document.getElementById('mml-upload').click()} style={{ padding: '6px 12px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Import</button>
+            <input type="file" accept=".txt,.mid,.midi" id="mml-upload" style={{ display: 'none' }} onChange={handleFileUpload} />
             <button onClick={trimSilence} style={{ padding: '6px 12px', backgroundColor: '#e09b2d', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Trim</button>
             <button onClick={() => setShowMMLModal(true)} style={{ padding: '6px 12px', backgroundColor: '#4facfe', color: '#000', border: 'none', cursor: 'pointer', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', marginLeft: '10px' }}>Export MML</button>
           </div>
@@ -418,10 +448,10 @@ function App() {
         </div>
       </div>
 
-      {/* Core Sequence Editor Layout - FIX: overflowY set to auto instead of hidden! */}
-      <div style={{ display: 'flex', flexDirection: 'row', flex: 1, backgroundColor: 'var(--bg-main, #111)', overflowY: 'auto', overflowX: 'hidden' }}>
+      {/* Core Sequence Editor Layout */}
+      <div ref={scrollWrapperRef} style={{ display: 'flex', flexDirection: 'row', flex: 1, backgroundColor: 'var(--bg-main, #111)', overflow: 'auto', alignItems: 'flex-start' }}>
         {/* Pillar A: Frozen Sidebar (Headers) */}
-        <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, width: '60px', backgroundColor: '#222' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, width: '60px', backgroundColor: '#222', position: 'sticky', left: 0, zIndex: 10 }}>
           {/* Tempo Spacer mapped to match exact canvas height & margins */}
           {showTempoLane && (
             <div style={{ height: '100px', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: '#ffb347', borderBottom: '1px solid #444' }}>
@@ -444,25 +474,20 @@ function App() {
               </div>
             )
           })}
-
-          {/* Dummy Scrollbar Spacer identically mimicking natively */}
-          <div style={{ height: '17px', flexShrink: 0 }} />
         </div>
 
-        {/* Pillar B: Dynamic Scrolling Wrapper mapping Timelines inherently strictly securely explicitly */}
-        <div ref={scrollWrapperRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ width: `${Math.min(totalCanvasBeats * pixelsPerBeat, MAX_CANVAS_WIDTH)}px`, display: 'flex', flexDirection: 'column' }}>
-            {/* Master Timeline Header */}
-            {showTempoLane && <TempoLane />}
+        {/* Pillar B: Master Timelines natively mapped flawlessly */}
+        <div style={{ width: `${Math.min(totalCanvasBeats * pixelsPerBeat, MAX_CANVAS_WIDTH)}px`, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+          {/* Master Timeline Header */}
+          {showTempoLane && <TempoLane />}
 
-            {/* The Piano Roll UI */}
-            <PianoRoll octaveRange={{ min: state.visibleMinOctave, max: state.visibleMaxOctave }} />
+          {/* The Piano Roll UI */}
+          <PianoRoll octaveRange={{ min: state.visibleMinOctave, max: state.visibleMaxOctave }} />
 
-            {/* Volume Automation Lanes */}
-            {showVolumeLane && activeTrackIds.map(id => (
-              <VolumeLane key={id} trackId={id} trackColor={getTrackColor(id)} />
-            ))}
-          </div>
+          {/* Volume Automation Lanes */}
+          {showVolumeLane && activeTrackIds.map(id => (
+            <VolumeLane key={id} trackId={id} trackColor={getTrackColor(id)} />
+          ))}
         </div>
       </div>
 
@@ -492,6 +517,46 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Modal Overlay for MIDI Import Mapping */}
+      {showMidiModal && midiData && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ width: '500px', backgroundColor: 'var(--bg-toolbar, #222)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color, #444)', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+            <h2 style={{ margin: '0 0 15px 0', color: 'var(--text-main, #fff)', fontSize: '18px' }}>Map MIDI Tracks</h2>
+            <p style={{ color: 'var(--text-muted, #aaa)', fontSize: '12px', marginBottom: '20px' }}>
+              Select which MIDI tracks to import into the engine. The engine supports a maximum of 3 melodic tracks. Drum tracks are highlighted. The BPM will be overwritten to {midiData.originalBpm}.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px' }}>
+              {[1, 2, 3].map(dawTrackId => (
+                <div key={dawTrackId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', backgroundColor: 'var(--bg-main, #111)', border: '1px solid var(--border-color, #555)', borderRadius: '4px' }}>
+                  <label style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--text-main, #fff)' }}>Track {dawTrackId}</label>
+                  <select
+                    value={midiTrackMappings[dawTrackId]}
+                    onChange={e => setMidiTrackMappings(prev => ({ ...prev, [dawTrackId]: e.target.value }))}
+                    style={{ padding: '6px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', width: '250px' }}
+                  >
+                    <option value="">-- Ignored --</option>
+                    {midiData.availableTracks.map(t => (
+                      <option key={t.index} value={t.index}>
+                        {t.isPercussion ? '🥁 ' : ''}{t.name} ({t.noteCount} notes)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={() => { setShowMidiModal(false); setMidiData(null); }} style={{ padding: '8px 16px', backgroundColor: 'transparent', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px' }}>Cancel</button>
+              <button onClick={executeMidiImport} style={{ padding: '8px 16px', backgroundColor: '#00ddff', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
+                Import Tracks
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

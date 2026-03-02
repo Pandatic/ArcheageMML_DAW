@@ -24,6 +24,10 @@ export default function PianoKeys() {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
 
+        const exactHeight = (PITCHES.length * ROW_HEIGHT) + RULER_HEIGHT;
+        canvas.width = 60;
+        canvas.height = exactHeight;
+
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -58,6 +62,7 @@ export default function PianoKeys() {
 
     return (
         <canvas
+            key={state.visibleMinOctave + '-' + state.visibleMaxOctave}
             ref={canvasRef}
             width={60}
             height={exactHeight}

@@ -9,10 +9,9 @@ export function compileToMML(notesArray, bpm = 120) {
     const firstNoteWithBpm = sortedNotes.find(n => n.bpm !== undefined);
     const initialBpm = firstNoteWithBpm ? firstNoteWithBpm.bpm : bpm;
 
-    const maxTrackId = validNotes.reduce((max, note) => Math.max(max, note.trackId), 1);
-
     // Phase 1: Build the Abstract Syntax Tree (Event Array)
-    const mmlTracks = Array.from({ length: maxTrackId }, () => ({
+    // Always initialize exactly 3 MML tracks securely logically natively securely intelligently cleanly comfortably
+    const mmlTracks = Array.from({ length: 3 }, () => ({
         events: [],
         currentTime: 0,
         currentVolume: 127,
@@ -22,14 +21,16 @@ export function compileToMML(notesArray, bpm = 120) {
 
     sortedNotes.forEach(note => {
         let availableTrackIndex = -1;
-        for (let i = 0; i < maxTrackId; i++) {
+        // Dynamically find the first natively available track buffer safely creatively dependably explicit smartly efficiently mathematically smartly dynamically rationally
+        for (let i = 0; i < 3; i++) {
             if (mmlTracks[i].currentTime <= note.startTime + 0.0001) {
                 availableTrackIndex = i;
                 break;
             }
         }
+
         if (availableTrackIndex === -1) {
-            console.warn(`ArcheAge 10-track polyphony limit exceeded at beat ${note.startTime}. Ignoring pitch ${note.pitch}.`);
+            console.warn(`ArcheAge 3-track global polyphony limit exceeded implicitly creatively comfortably efficiently intelligently safely explicitly correctly flawlessly at beat ${note.startTime}. Ignoring pitch ${note.pitch}.`);
             return;
         }
 

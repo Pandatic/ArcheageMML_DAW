@@ -12,47 +12,34 @@ export function evaluatePolyphony(notesArray) {
     // Sort chronologically by start time
     evaluatedNotes.sort((a, b) => a.startTime - b.startTime);
 
-    // Keep track of the end times and assigned trackIds of currently playing notes. Maximum 3 concurrently.
-    const activeNotes = [];
+    // Keep track of all globally active notes to ensure ArcheAge's strict 3-note global polyphony limit
+    const globalActiveNotes = [];
 
     for (let i = 0; i < evaluatedNotes.length; i++) {
         const note = evaluatedNotes[i];
 
-        // Remove notes that have finished playing before this note begins
-        // A tiny epsilon (.0001) is added to handle floating point tolerance
-        for (let j = activeNotes.length - 1; j >= 0; j--) {
-            if (activeNotes[j].endTime <= note.startTime + 0.0001) {
-                activeNotes.splice(j, 1);
+        // 1. Clean up notes that have mathematically ended before this note begins
+        for (let j = globalActiveNotes.length - 1; j >= 0; j--) {
+            if (globalActiveNotes[j].endTime <= note.startTime + 0.0001) {
+                globalActiveNotes.splice(j, 1);
             }
         }
 
-        // Check polyphony limit (max 3 concurrent strings in ArcheAge MML)
-        if (activeNotes.length >= 3) {
-            // All 3 tracks are currently playing a note. This overlaps too much.
+        // 2. Overlap Checking Logic
+        if (globalActiveNotes.length >= 3) {
+            // There are already 3 notes actively playing across the entire DAW sequence.
+            // This 4th note is mathematically illegal for ArcheAge's compiler.
+            note.isIllegal = true;
             note.isIgnored = true;
         } else {
-            // We have available space. Claim a polyphony slot!
+            // This space is free! It acts as a valid note.
+            note.isIllegal = false;
             note.isIgnored = false;
 
-            const usedTrackIds = activeNotes.map(n => n.trackId);
-
-            // Try to keep the note in its intended track first
-            let targetTrackId = note.trackId || 1;
-
-            // If its intended track is busy, find the lowest available slot
-            if (usedTrackIds.includes(targetTrackId)) {
-                targetTrackId = 1;
-                while (usedTrackIds.includes(targetTrackId)) {
-                    targetTrackId++;
-                }
-            }
-
-            note.trackId = targetTrackId;
-            activeNotes.push({ endTime: note.startTime + note.duration, trackId: targetTrackId });
+            // We register this note as actively consumed
+            globalActiveNotes.push({ endTime: note.startTime + note.duration });
         }
     }
 
-    // At this point, evaluatedNotes is sorted by startTime. 
-    // We didn't change the IDs, so returning this sorted array is fine and healthy for our reducers.
     return evaluatedNotes;
 }
