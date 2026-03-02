@@ -24,7 +24,7 @@ const getArtistryRank = (charCount) => {
 };
 
 function App() {
-  const { state, selectedNoteIds, setSelectedNoteIds, updateNote, setBpm, setVisibleOctaves, setSnapResolution, totalCanvasBeats, pixelsPerBeat, setPixelsPerBeat, loadProject, loadMML, setInstrument, addMultipleNotes, setClipboard, trimSilence } = useSequence();
+  const { state, selectedNoteIds, setSelectedNoteIds, updateNote, setBpm, setVisibleOctaves, setSnapResolution, totalCanvasBeats, pixelsPerBeat, setPixelsPerBeat, loadProject, loadMML, setInstrument, addMultipleNotes, setClipboard, trimSilence, toggleMute, toggleSolo } = useSequence();
   const [compiledMML, setCompiledMML] = useState('');
   const [copyStatus, setCopyStatus] = useState('Copy MML to Clipboard');
   const [showVolumeLane, setShowVolumeLane] = useState(false);
@@ -92,7 +92,14 @@ function App() {
     if (isTransportPlaying()) {
       pauseAudio();
     } else {
-      syncTransport(state.tracks[0].notes);
+      const anySolo = state.tracks.some(t => t.isSoloed);
+      const notesToPlay = state.tracks[0].notes.filter(n => {
+        const trackDef = state.tracks.find(t => t.id === n.trackId);
+        if (!trackDef) return true;
+        if (anySolo) return trackDef.isSoloed;
+        return !trackDef.isMuted;
+      });
+      syncTransport(notesToPlay);
       playAudio();
     }
   };
@@ -289,90 +296,82 @@ function App() {
   const rankInfo = getArtistryRank(compiledMML.length);
 
   return (
-    <div className="app-container" style={{ padding: '20px' }}>
-      <h1>ArcheAge Web DAW</h1>
+    <div className="app-container" style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: 'var(--bg-main, #111)', color: 'var(--text-main, #fff)', overflow: 'hidden' }}>
+      {/* Top Toolbar Ribbon */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-toolbar, #222)', padding: '10px 20px', borderBottom: '1px solid var(--border-color, #444)', flexShrink: 0 }}>
 
-      {/* Global Tempo Controls */}
-      <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#222', borderRadius: '4px', border: '1px solid #444' }}>
-        <div>
-          <label style={{ color: '#fff', marginRight: '15px', fontWeight: 'bold' }}>
-            Canvas Octave Range:
-          </label>
-          <select value={state.visibleMinOctave} onChange={handleMinOctaveChange} style={{ marginRight: '10px', padding: '5px' }}>
-            {[...Array(11)].map((_, i) => (
-              <option key={`min-oct-${i}`} value={i}>Min: Octave {i}</option>
-            ))}
-          </select>
-          <select value={state.visibleMaxOctave} onChange={handleMaxOctaveChange} style={{ padding: '5px' }}>
-            {[...Array(11)].map((_, i) => (
-              <option key={`max-oct-${i}`} value={i}>Max: Octave {i}</option>
-            ))}
-          </select>
+        {/* Left Zone: Menus & Transport */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          {/* File / Actions Group */}
+          <div style={{ display: 'flex', gap: '5px' }}>
+            <button onClick={handleSaveProject} style={{ padding: '6px 12px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Save</button>
+            <label style={{ padding: '6px 12px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>
+              Load
+              <input type="file" accept=".json" onChange={handleLoadProject} style={{ display: 'none' }} />
+            </label>
+            <button onClick={() => document.getElementById('mml-upload').click()} style={{ padding: '6px 12px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Import .txt</button>
+            <input type="file" accept=".txt" id="mml-upload" style={{ display: 'none' }} onChange={handleFileUpload} />
+            <button onClick={trimSilence} style={{ padding: '6px 12px', backgroundColor: '#e09b2d', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Trim</button>
+          </div>
 
-          <label style={{ color: '#fff', marginLeft: '30px', marginRight: '15px', fontWeight: 'bold' }}>
-            Grid:
-          </label>
-          <select
-            value={state.snapResolution}
-            onChange={(e) => setSnapResolution(parseFloat(e.target.value))}
-            style={{ padding: '5px' }}
-          >
-            <option value={1.0}>1/4</option>
-            <option value={0.5}>1/8</option>
-            <option value={0.25}>1/16</option>
-            <option value={0.125}>1/32</option>
-            <option value={0.0625}>1/64</option>
-          </select>
+          <div style={{ width: '1px', height: '20px', backgroundColor: '#555' }} /> {/* Divider */}
 
-          <label style={{ color: '#fff', marginLeft: '30px', marginRight: '15px', fontWeight: 'bold' }}>
-            Zoom:
-          </label>
-          <input
-            type="range"
-            min="20"
-            max={Math.min(240, Math.floor(MAX_CANVAS_WIDTH / totalCanvasBeats))}
-            value={pixelsPerBeat}
-            onChange={(e) => setPixelsPerBeat(Number(e.target.value))}
-            style={{ verticalAlign: 'middle', marginRight: '30px' }}
-          />
+          {/* View Toggles */}
+          <div style={{ display: 'flex', gap: '5px' }}>
+            <button onClick={() => setShowTempoLane(!showTempoLane)} style={{ padding: '6px 12px', backgroundColor: showTempoLane ? '#ffb347' : '#333', color: showTempoLane ? '#000' : '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Tempo</button>
+            <button onClick={() => setShowVolumeLane(!showVolumeLane)} style={{ padding: '6px 12px', backgroundColor: showVolumeLane ? '#bf47ff' : '#333', color: showVolumeLane ? '#fff' : '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Volume</button>
+          </div>
 
-          <button onClick={handleSaveProject} style={{ padding: '8px 16px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}>
-            Save Project
-          </button>
+          <div style={{ width: '1px', height: '20px', backgroundColor: '#555' }} /> {/* Divider */}
 
-          <label style={{ padding: '8px 16px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}>
-            Load Project
-            <input type="file" accept=".json" id="file-upload" onChange={handleLoadProject} style={{ display: 'none' }} />
-          </label>
+          {/* Transport Controls */}
+          <div style={{ display: 'flex', gap: '5px' }}>
+            <button onClick={stopAudio} style={{ padding: '6px 12px', backgroundColor: '#555', color: '#fff', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>|&lt;</button>
+            <button onClick={() => skipBars(-1)} style={{ padding: '6px 12px', backgroundColor: '#555', color: '#fff', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>&lt;&lt;</button>
+            <button onClick={handleTogglePlayback} style={{ padding: '6px 16px', backgroundColor: '#00ddff', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>Play / Pause</button>
+            <button onClick={stopAudio} style={{ padding: '6px 12px', backgroundColor: '#ff4444', color: '#fff', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>Stop</button>
+            <button onClick={() => skipBars(1)} style={{ padding: '6px 12px', backgroundColor: '#555', color: '#fff', border: 'none', cursor: 'pointer', borderRadius: '4px' }}>&gt;&gt;</button>
+          </div>
+        </div>
 
-          <button onClick={() => document.getElementById('mml-upload').click()} style={{ padding: '8px 16px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}>
-            Load .txt
-          </button>
-          <button onClick={trimSilence} style={{ padding: '8px 16px', backgroundColor: '#e09b2d', color: '#fff', border: '1px solid #555', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}>
-            Trim Silence
-          </button>
-          <input type="file" accept=".txt" id="mml-upload" style={{ display: 'none' }} onChange={handleFileUpload} />
+        {/* Right Zone: Tools & Instrument */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', fontSize: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <label>Octaves:</label>
+            <select value={state.visibleMinOctave} onChange={handleMinOctaveChange} style={{ padding: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '3px' }}>
+              {[...Array(11)].map((_, i) => <option key={`min-${i}`} value={i}>{i}</option>)}
+            </select>
+            <span>-</span>
+            <select value={state.visibleMaxOctave} onChange={handleMaxOctaveChange} style={{ padding: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '3px' }}>
+              {[...Array(11)].map((_, i) => <option key={`max-${i}`} value={i}>{i}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <label>Grid:</label>
+            <select value={state.snapResolution} onChange={(e) => setSnapResolution(parseFloat(e.target.value))} style={{ padding: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '3px' }}>
+              <option value={1.0}>1/4</option><option value={0.5}>1/8</option><option value={0.25}>1/16</option><option value={0.125}>1/32</option><option value={0.0625}>1/64</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <label>Zoom:</label>
+            <input type="range" min="20" max={Math.min(240, Math.floor(MAX_CANVAS_WIDTH / totalCanvasBeats))} value={pixelsPerBeat} onChange={(e) => setPixelsPerBeat(Number(e.target.value))} style={{ width: '80px' }} />
+          </div>
+
+          <div style={{ width: '1px', height: '20px', backgroundColor: '#555' }} /> {/* Divider */}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <select value={state.instrument} onChange={(e) => setInstrument(e.target.value)} style={{ padding: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '3px' }}>
+              <option value="Piano">Piano</option><option value="Lute">Lute</option>
+            </select>
+            {isInstrumentLoading && <span style={{ color: '#ffb347', fontStyle: 'italic' }}>Loading...</span>}
+          </div>
         </div>
       </div>
 
-      {/* View Toggles */}
-      <div style={{ marginBottom: '10px', display: 'flex', gap: '15px', alignItems: 'center' }}>
-        <button
-          onClick={() => setShowTempoLane(!showTempoLane)}
-          style={{ padding: '8px 16px', backgroundColor: showTempoLane ? '#ffb347' : '#f0932b', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}
-        >
-          {showTempoLane ? 'Hide Tempo Lane' : 'Show Tempo Lane'}
-        </button>
-        <button
-          onClick={() => setShowVolumeLane(!showVolumeLane)}
-          style={{ padding: '8px 16px', backgroundColor: showVolumeLane ? '#bf47ff' : '#4facfe', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}
-        >
-          {showVolumeLane ? 'Hide Volume Lane' : 'Show Volume Lane'}
-        </button>
-      </div>
-
-      {/* Core Sequence Editor Layout Flow Constraint */}
-      <div style={{ display: 'flex', flexDirection: 'row', border: '1px solid #444', backgroundColor: '#111', borderRadius: '4px', margin: '20px 0' }}>
+      {/* Core Sequence Editor Layout */}
+      <div style={{ display: 'flex', flexDirection: 'row', flex: 1, backgroundColor: 'var(--bg-main, #111)', overflow: 'hidden' }}>
         {/* Pillar A: Frozen Sidebar (Headers) */}
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, width: '60px', backgroundColor: '#222' }}>
           {/* Tempo Spacer mapped to match exact canvas height & margins */}
@@ -385,11 +384,18 @@ function App() {
           <PianoKeys />
 
           {/* Volume Spacers mapped to match exact canvas heights & margins per lane */}
-          {showVolumeLane && activeTrackIds.map(id => (
-            <div key={id} style={{ height: '100px', marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: getTrackColor(id), borderTop: '1px solid #444', borderBottom: '1px solid #444' }}>
-              Vol
-            </div>
-          ))}
+          {showVolumeLane && activeTrackIds.map(id => {
+            const trackDef = state.tracks.find(t => t.id === id) || {};
+            return (
+              <div key={id} style={{ height: '100px', marginTop: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontSize: '10px', color: getTrackColor(id), borderTop: '1px solid #444', borderBottom: '1px solid #444', gap: '5px' }}>
+                Vol {id}
+                <div style={{ display: 'flex', gap: '5px' }}>
+                  <button onClick={() => toggleMute(id)} style={{ padding: '2px 5px', fontSize: '10px', backgroundColor: trackDef.isMuted ? '#ff4444' : '#333', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>M</button>
+                  <button onClick={() => toggleSolo(id)} style={{ padding: '2px 5px', fontSize: '10px', backgroundColor: trackDef.isSoloed ? '#ffb347' : '#333', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>S</button>
+                </div>
+              </div>
+            )
+          })}
 
           {/* Dummy Scrollbar Spacer identically mimicking natively */}
           <div style={{ height: '17px', flexShrink: 0 }} />
@@ -412,42 +418,7 @@ function App() {
         </div>
       </div>
 
-      {/* Pillar C: Audio Player Controls */}
-      <div style={{ margin: '20px 0', display: 'flex', gap: '10px' }}>
-        <button onClick={stopAudio} style={{ padding: '10px 20px', backgroundColor: '#555', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
-          |&lt;
-        </button>
-        <button onClick={() => skipBars(-1)} style={{ padding: '10px 20px', backgroundColor: '#555', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
-          &lt;&lt;
-        </button>
-        <button onClick={handleTogglePlayback} style={{ padding: '10px 20px', backgroundColor: '#00ddff', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
-          Play/Pause
-        </button>
-        <button onClick={stopAudio} style={{ padding: '10px 20px', backgroundColor: '#ff4444', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
-          Stop
-        </button>
-        <button onClick={() => skipBars(1)} style={{ padding: '10px 20px', backgroundColor: '#555', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
-          &gt;&gt;
-        </button>
-        <div style={{ display: 'flex', alignItems: 'center', marginLeft: '20px' }}>
-          <label style={{ color: '#fff', marginRight: '10px', fontWeight: 'bold' }}>
-            Instrument:
-          </label>
-          <select
-            value={state.instrument}
-            onChange={(e) => setInstrument(e.target.value)}
-            style={{ padding: '5px' }}
-          >
-            <option value="Piano">Piano</option>
-            <option value="Lute">Lute</option>
-          </select>
-          {isInstrumentLoading && (
-            <span style={{ color: '#ffb347', marginLeft: '10px', fontWeight: 'bold', fontStyle: 'italic' }}>
-              Loading...
-            </span>
-          )}
-        </div>
-      </div>
+
 
       {/* MML Export Output */}
       <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#222', borderRadius: '4px', border: '1px solid #444' }}>

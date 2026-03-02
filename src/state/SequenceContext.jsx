@@ -109,7 +109,9 @@ export const ACTIONS = {
     UPDATE_MULTIPLE_NOTES: 'UPDATE_MULTIPLE_NOTES',
     ADD_MULTIPLE_NOTES: 'ADD_MULTIPLE_NOTES',
     SET_CLIPBOARD: 'SET_CLIPBOARD',
-    TRIM_SILENCE: 'TRIM_SILENCE'
+    TRIM_SILENCE: 'TRIM_SILENCE',
+    TOGGLE_MUTE: 'TOGGLE_MUTE',
+    TOGGLE_SOLO: 'TOGGLE_SOLO'
 };
 
 // --- Reducer ---
@@ -402,6 +404,10 @@ export function SequenceProvider({ children }) {
 
     const trimSilence = () => dispatch({ type: ACTIONS.TRIM_SILENCE });
 
+    const toggleMute = (trackId) => dispatch({ type: ACTIONS.TOGGLE_MUTE, payload: { trackId } });
+
+    const toggleSolo = (trackId) => dispatch({ type: ACTIONS.TOGGLE_SOLO, payload: { trackId } });
+
     const setClipboard = (clipboardData) => {
         dispatch({ type: ACTIONS.SET_CLIPBOARD, payload: { clipboardData } });
     };
@@ -455,6 +461,8 @@ export function SequenceProvider({ children }) {
         setInstrument,
         setClipboard,
         trimSilence,
+        toggleMute,
+        toggleSolo,
         selectedNoteIds,
         setSelectedNoteIds,
         totalCanvasBeats,
