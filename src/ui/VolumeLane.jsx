@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { useSequence } from '../state/SequenceContext';
+import { useSequence, MAX_CANVAS_WIDTH } from '../state/SequenceContext';
 
 const ROW_HEIGHT = 100; // Fixed canvas height UI layer 
 const PADDING = 15;
@@ -194,7 +194,7 @@ export default function VolumeLane({ trackId, trackColor }) {
     return (
         <canvas
             ref={canvasRef}
-            width={totalCanvasBeats * BEAT_WIDTH}
+            width={Math.min(totalCanvasBeats * BEAT_WIDTH, MAX_CANVAS_WIDTH)}
             height={ROW_HEIGHT}
             style={{ display: 'block', cursor: 'crosshair', marginTop: '10px', backgroundColor: '#111', borderTop: '1px solid #444', borderBottom: '1px solid #444' }}
             onMouseDown={handleMouseDown}

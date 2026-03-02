@@ -45,8 +45,8 @@ export function compileToMML(notesArray, bpm = 120) {
     // Prepend the Tempo (t) command exclusively to the very first track
     const mmlTracks = [
         { string: `t${bpm}`, currentTime: 0, currentVolume: 127, currentOctave: 5, currentTempo: bpm },
-        { string: "", currentTime: 0, currentVolume: 127, currentOctave: 5 },
-        { string: "", currentTime: 0, currentVolume: 127, currentOctave: 5 }
+        { string: `t${bpm}`, currentTime: 0, currentVolume: 127, currentOctave: 5, currentTempo: bpm },
+        { string: `t${bpm}`, currentTime: 0, currentVolume: 127, currentOctave: 5, currentTempo: bpm }
     ];
 
     sortedNotes.forEach(note => {

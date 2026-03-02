@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { useSequence, getMMLLength } from '../state/SequenceContext';
-import { getCurrentBeat, isTransportPlaying } from '../audio/AudioPlayer';
+import { useSequence, getMMLLength, MAX_CANVAS_WIDTH } from '../state/SequenceContext';
+import { getCurrentBeat, isTransportPlaying, seekToBeat } from '../audio/AudioPlayer';
 
 const ROW_HEIGHT = 35; // pixels per pitch row
+const RULER_HEIGHT = 24;
 
 // Create shared diagonal stripe pattern canvas off-screen reliably efficiently natively structurally
 const stripeCanvas = document.createElement('canvas');
@@ -22,7 +23,7 @@ stripeCtx.stroke();
 
 export default function PianoRoll() {
     const canvasRef = useRef(null);
-    const { state, addNote, updateNote, deleteNote, selectedNoteId, setSelectedNoteId, totalCanvasBeats, pixelsPerBeat } = useSequence();
+    const { state, addNote, updateNote, deleteNote, updateMultipleNotes, selectedNoteIds, setSelectedNoteIds, totalCanvasBeats, pixelsPerBeat } = useSequence();
 
     const BEAT_WIDTH = pixelsPerBeat;
 
@@ -42,11 +43,12 @@ export default function PianoRoll() {
     const notes = state.tracks[0].notes;
 
     // Interaction State
-    const [dragMode, setDragMode] = useState('none'); // 'none', 'move', 'resize'
+    const [dragMode, setDragMode] = useState('none'); // 'none', 'move', 'resize', 'lasso'
     const [activeNoteId, setActiveNoteId] = useState(null);
     const [dragOffset, setDragOffset] = useState({ beatOffset: 0 });
     const [currentBeat, setCurrentBeat] = useState(0);
     const [hoverState, setHoverState] = useState({ beat: null, pitch: null });
+    const [lassoBox, setLassoBox] = useState(null);
 
     const getPredictedColor = (beat, pitch) => {
         let availableTrackIndex = -1;
@@ -73,12 +75,7 @@ export default function PianoRoll() {
         let animationFrameId;
 
         const renderLoop = () => {
-            if (isTransportPlaying()) {
-                // Fetch the mathematically converted beats from Tone.js and set to React State
-                setCurrentBeat(getCurrentBeat());
-            } else {
-                setCurrentBeat(0);
-            }
+            setCurrentBeat(getCurrentBeat());
             animationFrameId = requestAnimationFrame(renderLoop);
         };
 
@@ -100,7 +97,7 @@ export default function PianoRoll() {
 
         // Draw horizontal lines (pitches)
         PITCHES.forEach((pitch, i) => {
-            const y = i * ROW_HEIGHT;
+            const y = (i * ROW_HEIGHT) + RULER_HEIGHT;
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(canvas.width, y);
@@ -112,11 +109,23 @@ export default function PianoRoll() {
         for (let i = 0; i <= totalCanvasBeats; i++) {
             const x = i * BEAT_WIDTH;
             ctx.beginPath();
-            ctx.moveTo(x, 0);
+            ctx.moveTo(x, RULER_HEIGHT);
             ctx.lineTo(x, canvas.height);
             // Emphasize every 4th beat to represent a measure
             ctx.strokeStyle = i % 4 === 0 ? '#666' : '#222';
             ctx.stroke();
+        }
+
+        // Draw Ruler at the top
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(0, 0, canvas.width, RULER_HEIGHT);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '10px Arial';
+        for (let i = 0; i <= totalCanvasBeats; i++) {
+            if (i % 4 === 0) {
+                const x = i * BEAT_WIDTH;
+                ctx.fillText(i.toString(), x + 5, 16);
+            }
         }
 
         // Draw Ghost Note natively evaluating 3-Track Polyphony visually organically securely elegantly dynamically identically explicitly neatly accurately.
@@ -124,7 +133,7 @@ export default function PianoRoll() {
             const pitchIndex = PITCHES.indexOf(hoverState.pitch);
             if (pitchIndex !== -1) {
                 const x = hoverState.beat * BEAT_WIDTH;
-                const y = pitchIndex * ROW_HEIGHT;
+                const y = (pitchIndex * ROW_HEIGHT) + RULER_HEIGHT;
                 const width = 1.0 * BEAT_WIDTH; // 1.0 default visualization mathematically exclusively solidly
                 const height = ROW_HEIGHT;
 
@@ -143,7 +152,7 @@ export default function PianoRoll() {
             if (pitchIndex === -1) return; // Skip if pitch is out of bounds for our simplified grid
 
             const x = note.startTime * BEAT_WIDTH;
-            const y = pitchIndex * ROW_HEIGHT;
+            const y = (pitchIndex * ROW_HEIGHT) + RULER_HEIGHT;
             const width = note.duration * BEAT_WIDTH;
             const height = ROW_HEIGHT;
 
@@ -163,8 +172,9 @@ export default function PianoRoll() {
             ctx.fillRect(x + 1, y + 1, width - 2, height - 2);
 
             // Draw note border (Highlight white if selected)
-            ctx.lineWidth = note.id === selectedNoteId ? 2 : 1;
-            ctx.strokeStyle = note.id === selectedNoteId ? '#ffffff' : '#000000';
+            const isSelected = selectedNoteIds.includes(note.id);
+            ctx.lineWidth = isSelected ? 2 : 1;
+            ctx.strokeStyle = isSelected ? '#ffffff' : '#000000';
             ctx.strokeRect(x + 1, y + 1, width - 2, height - 2);
 
             const mmlLength = getMMLLength(note.duration);
@@ -193,14 +203,27 @@ export default function PianoRoll() {
             // Rule 4 Math: Translate the Tone.js 'beats' floating value into exact Canvas pixel bounds (Beats * Beat Width)
             const playheadX = currentBeat * BEAT_WIDTH;
             ctx.beginPath();
-            ctx.moveTo(playheadX, 0);
+            ctx.moveTo(playheadX, RULER_HEIGHT);
             ctx.lineTo(playheadX, canvas.height);
             ctx.strokeStyle = '#ff0000'; // Distinct Red Line
             ctx.lineWidth = 2;
             ctx.stroke();
         }
 
-    }, [notes, activeNoteId, currentBeat, PITCHES, totalCanvasBeats, hoverState, pixelsPerBeat]);
+        if (lassoBox) {
+            const minX = Math.min(lassoBox.startX, lassoBox.currentX);
+            const maxX = Math.max(lassoBox.startX, lassoBox.currentX);
+            const minY = Math.min(lassoBox.startY, lassoBox.currentY);
+            const maxY = Math.max(lassoBox.startY, lassoBox.currentY);
+
+            ctx.fillStyle = 'rgba(65, 166, 255, 0.3)';
+            ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+            ctx.strokeStyle = '#41a6ff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+        }
+
+    }, [notes, activeNoteId, currentBeat, PITCHES, totalCanvasBeats, hoverState, pixelsPerBeat, selectedNoteIds, lassoBox]);
 
     const handleMouseDown = (e) => {
         if (e.button !== 0) return; // Ignore right/middle clicks to reserve for delete/other actions
@@ -216,8 +239,16 @@ export default function PianoRoll() {
         const rawBeat = x / BEAT_WIDTH;
         const snappedBeat = Math.round(rawBeat / state.snapResolution) * state.snapResolution;
 
+        // Transport seek interception via ruler bound mapping organically explicit
+        if (y <= RULER_HEIGHT) {
+            setDragMode('seek');
+            seekToBeat(Math.max(0, snappedBeat));
+            return; // Prevent notes securely effectively efficiently cleanly smartly flawlessly gracefully reliably smoothly seamlessly properly identically seamlessly symmetrically
+        }
+
         // Translate Y to pitch
-        const pitchIndex = Math.floor(y / ROW_HEIGHT);
+        const gridY = y - RULER_HEIGHT;
+        const pitchIndex = Math.floor(gridY / ROW_HEIGHT);
         if (pitchIndex < 0 || pitchIndex >= PITCHES.length) return;
 
         const clickedPitch = PITCHES[pitchIndex];
@@ -238,20 +269,43 @@ export default function PianoRoll() {
             if (noteRightEdgePixel - x <= 10) {
                 setDragMode('resize');
                 setActiveNoteId(clickedNote.id);
+                if (!selectedNoteIds.includes(clickedNote.id)) {
+                    if (e.shiftKey) {
+                        setSelectedNoteIds(prev => [...prev, clickedNote.id]);
+                    } else {
+                        setSelectedNoteIds([clickedNote.id]);
+                    }
+                }
             } else {
                 setDragMode('move');
                 setActiveNoteId(clickedNote.id);
+
+                if (!selectedNoteIds.includes(clickedNote.id)) {
+                    if (e.shiftKey) {
+                        setSelectedNoteIds(prev => [...prev, clickedNote.id]);
+                    } else {
+                        setSelectedNoteIds([clickedNote.id]);
+                    }
+                }
 
                 // We calculate a beat offset so moving the note doesn't jarringly snap its start directly to the user's mouse pointer
                 setDragOffset({
                     beatOffset: clickedNote.startTime - rawBeat
                 });
             }
-            setSelectedNoteId(clickedNote.id);
         } else {
             // Clicked empty space
-            addNote(clickedPitch, snappedBeat, 1.0);
-            setSelectedNoteId(null);
+            if (e.shiftKey) {
+                // Shift is held: Start Lasso Selection
+                setDragMode('lasso');
+                setLassoBox({ startX: x, startY: y, currentX: x, currentY: y });
+                // Note: We deliberately do NOT clear selectedNoteIds here, 
+                // so users can shift-lasso multiple separate groups!
+            } else {
+                // Normal Click: Clear selection and spawn a new note
+                setSelectedNoteIds([]);
+                addNote(PITCHES[pitchIndex], Math.max(0, snappedBeat), 1.0);
+            }
         }
     };
 
@@ -263,10 +317,22 @@ export default function PianoRoll() {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
+        const rawBeat = x / BEAT_WIDTH;
+        const snappedBeat = Math.round(rawBeat / state.snapResolution) * state.snapResolution;
+
+        if (dragMode === 'seek') {
+            seekToBeat(Math.max(0, snappedBeat));
+            return;
+        }
+
+        if (dragMode === 'lasso') {
+            setLassoBox(prev => ({ ...prev, currentX: x, currentY: y }));
+            return;
+        }
+
         if (dragMode === 'none' || !activeNoteId) {
-            const rawBeat = x / BEAT_WIDTH;
-            const snappedBeat = Math.round(rawBeat / state.snapResolution) * state.snapResolution;
-            const pitchIndex = Math.floor(y / ROW_HEIGHT);
+            const gridY = y - RULER_HEIGHT;
+            const pitchIndex = Math.floor(gridY / ROW_HEIGHT);
 
             if (pitchIndex >= 0 && pitchIndex < PITCHES.length) {
                 if (hoverState.beat !== snappedBeat || hoverState.pitch !== PITCHES[pitchIndex]) {
@@ -292,13 +358,32 @@ export default function PianoRoll() {
             // Bounds check so the note cannot drop below the start of the song
             if (newStartTime < 0) newStartTime = 0;
 
-            const pitchIndex = Math.floor(y / ROW_HEIGHT);
-            if (pitchIndex >= 0 && pitchIndex < PITCHES.length) {
-                const newPitch = PITCHES[pitchIndex];
+            const gridY = y - RULER_HEIGHT;
+            const pitchIndex = Math.floor(gridY / ROW_HEIGHT);
+            const activePitchIndex = PITCHES.indexOf(activeNote.pitch);
 
-                // Throttle React state updates by only calling updateNote if the grid position actually shifted mathematically
-                if (newStartTime !== activeNote.startTime || newPitch !== activeNote.pitch) {
-                    updateNote(activeNoteId, { startTime: newStartTime, pitch: newPitch });
+            const beatDelta = newStartTime - activeNote.startTime;
+            const pitchDelta = pitchIndex - activePitchIndex;
+
+            if (beatDelta !== 0 || pitchDelta !== 0) {
+                const groupIds = selectedNoteIds.includes(activeNoteId) ? selectedNoteIds : [activeNoteId];
+
+                const updates = groupIds.map(nId => {
+                    const n = notes.find(nn => nn.id === nId);
+                    if (!n) return null;
+
+                    let targetStart = n.startTime + beatDelta;
+                    if (targetStart < 0) targetStart = 0;
+
+                    let oldPIndex = PITCHES.indexOf(n.pitch);
+                    let targetPIndex = oldPIndex + pitchDelta;
+                    targetPIndex = Math.max(0, Math.min(PITCHES.length - 1, targetPIndex));
+
+                    return { id: nId, updatedFields: { startTime: targetStart, pitch: PITCHES[targetPIndex] } };
+                }).filter(Boolean);
+
+                if (updates.length > 0) {
+                    updateMultipleNotes(updates);
                 }
             }
         } else if (dragMode === 'resize') {
@@ -323,6 +408,29 @@ export default function PianoRoll() {
     };
 
     const handleMouseUp = () => {
+        if (dragMode === 'lasso' && lassoBox) {
+            const minX = Math.min(lassoBox.startX, lassoBox.currentX);
+            const maxX = Math.max(lassoBox.startX, lassoBox.currentX);
+            const minY = Math.min(lassoBox.startY, lassoBox.currentY);
+            const maxY = Math.max(lassoBox.startY, lassoBox.currentY);
+
+            const newSelected = [];
+            notes.forEach(note => {
+                const pIndex = PITCHES.indexOf(note.pitch);
+                if (pIndex === -1) return;
+
+                const noteX = note.startTime * BEAT_WIDTH;
+                const noteW = note.duration * BEAT_WIDTH;
+                const noteY = (pIndex * ROW_HEIGHT) + RULER_HEIGHT;
+
+                if (noteX < maxX && (noteX + noteW) > minX && noteY < maxY && (noteY + ROW_HEIGHT) > minY) {
+                    newSelected.push(note.id);
+                }
+            });
+
+            setSelectedNoteIds(prev => [...new Set([...prev, ...newSelected])]);
+            setLassoBox(null);
+        }
         setDragMode('none');
         setActiveNoteId(null);
     };
@@ -330,6 +438,7 @@ export default function PianoRoll() {
     const handleMouseLeave = () => {
         setDragMode('none');
         setActiveNoteId(null);
+        setLassoBox(null);
         setHoverState({ beat: null, pitch: null });
     };
 
@@ -344,7 +453,8 @@ export default function PianoRoll() {
         const y = e.clientY - rect.top;
 
         const rawBeat = x / BEAT_WIDTH;
-        const pitchIndex = Math.floor(y / ROW_HEIGHT);
+        const gridY = y - RULER_HEIGHT;
+        const pitchIndex = Math.floor(gridY / ROW_HEIGHT);
         if (pitchIndex < 0 || pitchIndex >= PITCHES.length) return;
 
         const clickedPitch = PITCHES[pitchIndex];
@@ -361,14 +471,19 @@ export default function PianoRoll() {
         }
     };
 
+    const exactHeight = (PITCHES.length * ROW_HEIGHT) + RULER_HEIGHT;
+
     return (
         <canvas
             ref={canvasRef}
-            width={totalCanvasBeats * BEAT_WIDTH}
-            height={PITCHES.length * ROW_HEIGHT}
+            width={Math.min(totalCanvasBeats * BEAT_WIDTH, MAX_CANVAS_WIDTH)}
+            height={exactHeight}
             style={{
                 display: 'block',
-                cursor: dragMode === 'resize' ? 'e-resize' : (dragMode === 'move' ? 'grabbing' : 'auto')
+                cursor: dragMode === 'resize' ? 'e-resize' : (dragMode === 'move' ? 'grabbing' : 'auto'),
+                flexShrink: 0,
+                minHeight: `${exactHeight}px`,
+                maxHeight: `${exactHeight}px`
             }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}

@@ -1,25 +1,50 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useSequence, getUsedOctaveRange } from './state/SequenceContext';
+import { useSequence, getUsedOctaveRange, MAX_CANVAS_WIDTH } from './state/SequenceContext';
 import { compileToMML } from './engine/mmlCompiler';
 import PianoRoll from './ui/PianoRoll';
 import PianoKeys from './ui/PianoKeys';
 import VolumeLane from './ui/VolumeLane';
 import TempoLane from './ui/TempoLane';
-import { playSequence, stopSequence, setAudioTempo } from './audio/AudioPlayer';
+import { syncTransport, playAudio, pauseAudio, stopAudio, skipBars, setAudioTempo, loadInstrument, isTransportPlaying, getCurrentBeat, seekToBeat } from './audio/AudioPlayer';
+
+const getArtistryRank = (charCount) => {
+  if (charCount <= 200) return { rank: 'Amateur', max: 200, color: '#b8906f' };
+  if (charCount <= 400) return { rank: 'Novice', max: 400, color: '#67b93e' };
+  if (charCount <= 600) return { rank: 'Veteran', max: 600, color: '#4790d0' };
+  if (charCount <= 800) return { rank: 'Expert', max: 800, color: '#b446c8' };
+  if (charCount <= 1000) return { rank: 'Master', max: 1000, color: '#e09b2d' };
+  if (charCount <= 1200) return { rank: 'Authority', max: 1200, color: '#d36440' };
+  if (charCount <= 1400) return { rank: 'Champion', max: 1400, color: '#d36440' };
+  if (charCount <= 1600) return { rank: 'Adept', max: 1600, color: '#d36440' };
+  if (charCount <= 1800) return { rank: 'Herald', max: 1800, color: '#d36440' };
+  if (charCount <= 5000) return { rank: 'Virtuoso', max: 5000, color: '#d36440' };
+  if (charCount <= 7000) return { rank: 'Celebrity', max: 7000, color: '#d34040' };
+  if (charCount <= 10000) return { rank: 'Famed', max: 10000, color: '#9e9e9e' };
+  return { rank: 'Exceeds Limits', max: 10000, color: '#ff0000' };
+};
 
 function App() {
-  const { state, selectedNoteId, updateNote, setBpm, setVisibleOctaves, setSnapResolution, totalCanvasBeats, pixelsPerBeat, setPixelsPerBeat } = useSequence();
+  const { state, selectedNoteIds, setSelectedNoteIds, updateNote, setBpm, setVisibleOctaves, setSnapResolution, totalCanvasBeats, pixelsPerBeat, setPixelsPerBeat, loadProject, loadMML, setInstrument, addMultipleNotes, setClipboard } = useSequence();
   const [compiledMML, setCompiledMML] = useState('');
   const [copyStatus, setCopyStatus] = useState('Copy MML to Clipboard');
   const [showVolumeLane, setShowVolumeLane] = useState(false);
   const [showTempoLane, setShowTempoLane] = useState(false);
+  const [isInstrumentLoading, setIsInstrumentLoading] = useState(false);
   const scrollWrapperRef = useRef(null);
+
+  useEffect(() => {
+    setIsInstrumentLoading(true);
+    loadInstrument(state.instrument).then(() => {
+      setIsInstrumentLoading(false);
+    });
+  }, [state.instrument]);
 
   useEffect(() => {
     const handleWheel = (e) => {
       if (e.altKey) {
         e.preventDefault();
-        setPixelsPerBeat(prev => Math.max(20, Math.min(240, prev - e.deltaY * 0.5)));
+        const maxSafeZoom = Math.min(240, Math.floor(MAX_CANVAS_WIDTH / totalCanvasBeats));
+        setPixelsPerBeat(prev => Math.max(20, Math.min(maxSafeZoom, prev - e.deltaY * 0.5)));
       }
     };
     const wrapper = scrollWrapperRef.current;
@@ -33,8 +58,103 @@ function App() {
     };
   }, [setPixelsPerBeat]);
 
+  useEffect(() => {
+    let animationFrameId;
+
+    const trackScroll = () => {
+      if (isTransportPlaying() && scrollWrapperRef.current) {
+        const wrapper = scrollWrapperRef.current;
+        const currentBeat = getCurrentBeat();
+        const playheadX = currentBeat * pixelsPerBeat;
+
+        const viewLeft = wrapper.scrollLeft;
+        const viewRight = viewLeft + wrapper.clientWidth;
+
+        // If playhead goes off the right edge (with 20px padding)
+        if (playheadX > viewRight - 20) {
+          // "Turn the page": snap scroll so playhead is near the left edge
+          wrapper.scrollLeft = playheadX - 50;
+        }
+        // If user skips backwards off the left edge
+        else if (playheadX < viewLeft) {
+          wrapper.scrollLeft = Math.max(0, playheadX - 50);
+        }
+      }
+      animationFrameId = requestAnimationFrame(trackScroll);
+    };
+
+    trackScroll();
+
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [pixelsPerBeat]);
+
+  const handleTogglePlayback = () => {
+    if (isTransportPlaying()) {
+      pauseAudio();
+    } else {
+      syncTransport(state.tracks[0].notes);
+      playAudio();
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleTogglePlayback();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        const currentBeat = getCurrentBeat();
+        // Subtract a tiny epsilon to ensure we snap to the *previous* line if we are exactly on a line
+        let newBeat = Math.floor((currentBeat - 0.001) / state.snapResolution) * state.snapResolution;
+        if (newBeat < 0) newBeat = 0;
+        seekToBeat(newBeat);
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        const currentBeat = getCurrentBeat();
+        // Add a tiny epsilon to ensure we snap to the *next* line
+        let newBeat = Math.ceil((currentBeat + 0.001) / state.snapResolution) * state.snapResolution;
+        seekToBeat(newBeat);
+      } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
+        e.preventDefault();
+        const copiedNotes = state.tracks[0].notes.filter(n => state.selectedNoteIds && state.selectedNoteIds.includes(n.id) || selectedNoteIds.includes(n.id));
+        if (copiedNotes.length === 0) return;
+
+        const minStartTime = Math.min(...copiedNotes.map(n => n.startTime));
+        setClipboard({ originalStart: minStartTime, notes: copiedNotes });
+
+      } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') {
+        e.preventDefault();
+        if (!state.clipboard || !state.clipboard.notes || state.clipboard.notes.length === 0) return;
+
+        const currentBeat = getCurrentBeat();
+        const snappedStart = Math.round(currentBeat / state.snapResolution) * state.snapResolution;
+
+        const newNotesArray = state.clipboard.notes.map(note => {
+          const newStartTime = snappedStart + (note.startTime - state.clipboard.originalStart);
+          return {
+            ...note,
+            id: 'note-' + Date.now() + Math.random().toString(36).substr(2, 9),
+            startTime: newStartTime
+          };
+        });
+
+        addMultipleNotes(newNotesArray);
+        setSelectedNoteIds(newNotesArray.map(n => n.id));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [state.tracks, state.snapResolution, state.clipboard, selectedNoteIds]);
+
   const track1Notes = state.tracks[0].notes;
-  const selectedNote = track1Notes.find(n => n.id === selectedNoteId);
+  const selectedNote = track1Notes.find(n => selectedNoteIds.includes(n.id));
 
   const activeTrackIds = [...new Set(track1Notes.filter(n => !n.isIgnored).map(n => n.trackId))].sort();
 
@@ -68,11 +188,6 @@ function App() {
     // Filter empty tracks to prevent trailing commas like string,,
     setCompiledMML(compiledMMLTracks.filter(track => track.trim() !== '').join(','));
   }, [state.bpm, track1Notes]);
-
-  const handlePlay = () => {
-    // Only pass notes from the first track based on our current data structure limit
-    playSequence(state.tracks[0].notes);
-  };
 
   const handleMinOctaveChange = (e) => {
     let newMin = parseInt(e.target.value, 10);
@@ -112,6 +227,56 @@ function App() {
       setTimeout(() => setCopyStatus('Copy MML to Clipboard'), 2000);
     });
   };
+
+  const handleSaveProject = () => {
+    const data = JSON.stringify({ tracks: state.tracks, bpm: state.bpm });
+    const blob = new Blob([data], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'archeage_project.json';
+    a.click();
+  };
+
+  const handleLoadProject = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsedData = JSON.parse(event.target.result);
+        loadProject(parsedData);
+      } catch (err) {
+        console.error("Failed to load project", err);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = null;
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        loadMML(event.target.result);
+      } catch (err) {
+        console.error("Failed to parse MML", err);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = null;
+  };
+
+  const handleDownloadMML = () => {
+    const blob = new Blob([compiledMML], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'archeage_song.txt';
+    a.click();
+  };
+
+  const rankInfo = getArtistryRank(compiledMML.length);
 
   return (
     <div className="app-container" style={{ padding: '20px' }}>
@@ -155,11 +320,25 @@ function App() {
           <input
             type="range"
             min="20"
-            max="240"
+            max={Math.min(240, Math.floor(MAX_CANVAS_WIDTH / totalCanvasBeats))}
             value={pixelsPerBeat}
             onChange={(e) => setPixelsPerBeat(Number(e.target.value))}
-            style={{ verticalAlign: 'middle' }}
+            style={{ verticalAlign: 'middle', marginRight: '30px' }}
           />
+
+          <button onClick={handleSaveProject} style={{ padding: '8px 16px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}>
+            Save Project
+          </button>
+
+          <label style={{ padding: '8px 16px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}>
+            Load Project
+            <input type="file" accept=".json" id="file-upload" onChange={handleLoadProject} style={{ display: 'none' }} />
+          </label>
+
+          <button onClick={() => document.getElementById('mml-upload').click()} style={{ padding: '8px 16px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}>
+            Load .txt
+          </button>
+          <input type="file" accept=".txt" id="mml-upload" style={{ display: 'none' }} onChange={handleFileUpload} />
         </div>
       </div>
 
@@ -198,11 +377,14 @@ function App() {
               Vol
             </div>
           ))}
+
+          {/* Dummy Scrollbar Spacer identically mimicking natively */}
+          <div style={{ height: '17px', flexShrink: 0 }} />
         </div>
 
         {/* Pillar B: Dynamic Scrolling Wrapper mapping Timelines inherently strictly securely explicitly */}
         <div ref={scrollWrapperRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ width: `${totalCanvasBeats * pixelsPerBeat}px`, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ width: `${Math.min(totalCanvasBeats * pixelsPerBeat, MAX_CANVAS_WIDTH)}px`, display: 'flex', flexDirection: 'column' }}>
             {/* Master Timeline Header */}
             {showTempoLane && <TempoLane />}
 
@@ -219,17 +401,52 @@ function App() {
 
       {/* Pillar C: Audio Player Controls */}
       <div style={{ margin: '20px 0', display: 'flex', gap: '10px' }}>
-        <button onClick={handlePlay} style={{ padding: '10px 20px', backgroundColor: '#00ddff', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
-          Play Sequence
+        <button onClick={stopAudio} style={{ padding: '10px 20px', backgroundColor: '#555', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
+          |&lt;
         </button>
-        <button onClick={stopSequence} style={{ padding: '10px 20px', backgroundColor: '#ff4444', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
+        <button onClick={() => skipBars(-1)} style={{ padding: '10px 20px', backgroundColor: '#555', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
+          &lt;&lt;
+        </button>
+        <button onClick={handleTogglePlayback} style={{ padding: '10px 20px', backgroundColor: '#00ddff', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
+          Play/Pause
+        </button>
+        <button onClick={stopAudio} style={{ padding: '10px 20px', backgroundColor: '#ff4444', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
           Stop
         </button>
+        <button onClick={() => skipBars(1)} style={{ padding: '10px 20px', backgroundColor: '#555', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
+          &gt;&gt;
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', marginLeft: '20px' }}>
+          <label style={{ color: '#fff', marginRight: '10px', fontWeight: 'bold' }}>
+            Instrument:
+          </label>
+          <select
+            value={state.instrument}
+            onChange={(e) => setInstrument(e.target.value)}
+            style={{ padding: '5px' }}
+          >
+            <option value="Piano">Piano</option>
+            <option value="Lute">Lute</option>
+          </select>
+          {isInstrumentLoading && (
+            <span style={{ color: '#ffb347', marginLeft: '10px', fontWeight: 'bold', fontStyle: 'italic' }}>
+              Loading...
+            </span>
+          )}
+        </div>
       </div>
 
       {/* MML Export Output */}
       <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#222', borderRadius: '4px', border: '1px solid #444' }}>
-        <h3 style={{ marginTop: 0, color: '#fff' }}>Export MML</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <h3 style={{ margin: 0, color: '#fff' }}>Export MML</h3>
+          <div style={{ fontSize: '14px', fontWeight: 'bold', backgroundColor: '#111', padding: '6px 12px', borderRadius: '4px', border: '1px solid #333' }}>
+            <span style={{ color: '#aaa' }}>Characters: {compiledMML.length} / {rankInfo.max} </span>
+            <span style={{ color: '#444', margin: '0 10px' }}>|</span>
+            <span style={{ color: '#aaa' }}>Required Artistry: </span>
+            <span style={{ color: rankInfo.color }}>{rankInfo.rank}</span>
+          </div>
+        </div>
         <textarea
           readOnly
           value={compiledMML}
@@ -237,9 +454,15 @@ function App() {
         />
         <button
           onClick={handleCopy}
-          style={{ padding: '10px 20px', backgroundColor: copyStatus === 'Copied!' ? '#43e97b' : '#4facfe', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}
+          style={{ padding: '10px 20px', backgroundColor: copyStatus === 'Copied!' ? '#43e97b' : '#4facfe', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}
         >
           {copyStatus}
+        </button>
+        <button
+          onClick={handleDownloadMML}
+          style={{ padding: '10px 20px', backgroundColor: '#bf47ff', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}
+        >
+          Download .txt
         </button>
       </div>
     </div>

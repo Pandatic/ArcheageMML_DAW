@@ -1,0 +1,17 @@
+Critical Bugs to Squash
+
+    Vertical Alignment Desync (Current Blocker): The PianoKeys canvas and PianoRoll canvas are calculating their rowHeight or overall heights differently, causing the keys and grid to drift out of alignment, exacerbated by the scrollbar and automation lanes.
+
+    Tempo-Aware Playback: The audio engine ignores the user's Tempo Lane data and defaults to 120 BPM.
+
+    Playhead Synchronization: The sweeping red playhead line is tied to a local timer instead of the Tone.Transport Web Audio clock, causing visual drift during playback.
+
+Features to Build
+
+    Artistry Proficiency Tracker: A dynamic UI element that checks the MML character count and displays the required ArcheAge proficiency rank (Amateur, Novice, Master, etc.) using the game's official color codes.
+
+    ArcheAge Instrument Library: Upgrading from a basic sine-wave generator to Tone.Sampler to support real instrument playback (Piano, Lute, Flute, Guitar, etc.).
+
+    MML Save/Load System: Allowing users to export their current workspace/MML to a .txt file and import it back later, preventing data loss on refresh.
+
+    Lasso Selection Tool (Polish Phase): The ability to click and drag a box to highlight multiple notes, making it easier to move, copy, or delete entire chords or phrases at once.

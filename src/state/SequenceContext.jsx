@@ -1,8 +1,11 @@
 import React, { createContext, useContext, useReducer, useState, useMemo } from 'react';
 import { evaluatePolyphony } from '../engine/polyphonyEvaluator';
+import { parseMMLToNotes } from '../engine/mmlParser';
 
 const DEFAULT_MIN_BEATS = 32;
 const BUFFER_BEATS = 20;
+
+export const MAX_CANVAS_WIDTH = 32000;
 
 export function getUsedOctaveRange(notesArray) {
     if (!notesArray || notesArray.length === 0) return { min: null, max: null };
@@ -86,7 +89,9 @@ const INITIAL_STATE = {
     bpm: 120,
     visibleMinOctave: 3,
     visibleMaxOctave: 5,
-    snapResolution: 0.25
+    snapResolution: 0.25,
+    instrument: 'Piano',
+    clipboard: null
 };
 
 // --- Actions ---
@@ -97,7 +102,13 @@ export const ACTIONS = {
     CLEAR_TRACK: 'CLEAR_TRACK',
     SET_BPM: 'SET_BPM',
     SET_VISIBLE_OCTAVES: 'SET_VISIBLE_OCTAVES',
-    SET_SNAP_RESOLUTION: 'SET_SNAP_RESOLUTION'
+    SET_SNAP_RESOLUTION: 'SET_SNAP_RESOLUTION',
+    LOAD_PROJECT: 'LOAD_PROJECT',
+    LOAD_MML: 'LOAD_MML',
+    SET_INSTRUMENT: 'SET_INSTRUMENT',
+    UPDATE_MULTIPLE_NOTES: 'UPDATE_MULTIPLE_NOTES',
+    ADD_MULTIPLE_NOTES: 'ADD_MULTIPLE_NOTES',
+    SET_CLIPBOARD: 'SET_CLIPBOARD'
 };
 
 // --- Reducer ---
@@ -145,6 +156,22 @@ function sequenceReducer(state, action) {
             };
         }
 
+        case ACTIONS.ADD_MULTIPLE_NOTES: {
+            const { trackId, notes } = action.payload;
+            return {
+                ...state,
+                tracks: state.tracks.map(track => {
+                    if (track.id === trackId) {
+                        return {
+                            ...track,
+                            notes: evaluatePolyphony([...track.notes, ...notes])
+                        };
+                    }
+                    return track;
+                })
+            };
+        }
+
         case ACTIONS.UPDATE_NOTE: {
             const { trackId, noteId, updatedFields } = action.payload;
 
@@ -167,6 +194,37 @@ function sequenceReducer(state, action) {
                                 note.id === noteId ? { ...note, ...safeFields } : note
                             ))
                         };
+                    }
+                    return track;
+                })
+            };
+        }
+
+        case ACTIONS.UPDATE_MULTIPLE_NOTES: {
+            const updates = action.payload; // array of { id, updatedFields }
+
+            return {
+                ...state,
+                tracks: state.tracks.map(track => {
+                    let madeChanges = false;
+                    const newNotes = track.notes.map(note => {
+                        const updateMatch = updates.find(u => u.id === note.id);
+                        if (updateMatch) {
+                            madeChanges = true;
+                            const safeFields = { ...updateMatch.updatedFields };
+                            if (safeFields.velocity !== undefined) {
+                                safeFields.velocity = Math.min(127, Math.max(0, isNaN(safeFields.velocity) ? 100 : safeFields.velocity));
+                            }
+                            if (safeFields.bpm !== undefined) {
+                                safeFields.bpm = Math.min(255, Math.max(32, isNaN(safeFields.bpm) ? 120 : safeFields.bpm));
+                            }
+                            return { ...note, ...safeFields };
+                        }
+                        return note;
+                    });
+
+                    if (madeChanges) {
+                        return { ...track, notes: evaluatePolyphony(newNotes) };
                     }
                     return track;
                 })
@@ -230,6 +288,45 @@ function sequenceReducer(state, action) {
             };
         }
 
+        case ACTIONS.SET_CLIPBOARD: {
+            return {
+                ...state,
+                clipboard: action.payload.clipboardData
+            };
+        }
+
+        case ACTIONS.LOAD_PROJECT: {
+            return {
+                ...state,
+                tracks: action.payload.tracks || state.tracks,
+                bpm: action.payload.bpm || state.bpm
+            };
+        }
+
+        case ACTIONS.LOAD_MML: {
+            const parsedNotes = evaluatePolyphony(action.payload);
+            let importedBpm = state.bpm;
+            const firstNoteWithBpm = parsedNotes.find(n => n.bpm !== undefined);
+            if (firstNoteWithBpm) importedBpm = firstNoteWithBpm.bpm;
+
+            return {
+                ...state,
+                tracks: [
+                    { id: 1, name: 'Track 1', notes: parsedNotes },
+                    { id: 2, name: 'Track 2', notes: [] },
+                    { id: 3, name: 'Track 3', notes: [] }
+                ],
+                bpm: importedBpm
+            };
+        }
+
+        case ACTIONS.SET_INSTRUMENT: {
+            return {
+                ...state,
+                instrument: action.payload.instrument
+            };
+        }
+
         default:
             return state;
     }
@@ -240,7 +337,7 @@ const SequenceContext = createContext();
 
 export function SequenceProvider({ children }) {
     const [state, dispatch] = useReducer(sequenceReducer, INITIAL_STATE);
-    const [selectedNoteId, setSelectedNoteId] = useState(null);
+    const [selectedNoteIds, setSelectedNoteIds] = useState([]);
     const [pixelsPerBeat, setPixelsPerBeat] = useState(60);
 
     const totalCanvasBeats = useMemo(() => {
@@ -274,6 +371,18 @@ export function SequenceProvider({ children }) {
         dispatch({ type: ACTIONS.UPDATE_NOTE, payload: { trackId: 1, noteId: id, updatedFields } });
     };
 
+    const updateMultipleNotes = (updates) => {
+        dispatch({ type: ACTIONS.UPDATE_MULTIPLE_NOTES, payload: updates });
+    };
+
+    const addMultipleNotes = (notesArray) => {
+        dispatch({ type: ACTIONS.ADD_MULTIPLE_NOTES, payload: { trackId: 1, notes: notesArray } });
+    };
+
+    const setClipboard = (clipboardData) => {
+        dispatch({ type: ACTIONS.SET_CLIPBOARD, payload: { clipboardData } });
+    };
+
     const deleteNote = (id) => {
         dispatch({ type: ACTIONS.DELETE_NOTE, payload: { trackId: 1, noteId: id } });
     };
@@ -294,17 +403,36 @@ export function SequenceProvider({ children }) {
         dispatch({ type: ACTIONS.SET_SNAP_RESOLUTION, payload: { resolution } });
     };
 
+    const loadProject = (parsedData) => {
+        dispatch({ type: ACTIONS.LOAD_PROJECT, payload: parsedData });
+    };
+
+    const loadMML = (mmlString) => {
+        const parsedNotes = parseMMLToNotes(mmlString);
+        dispatch({ type: ACTIONS.LOAD_MML, payload: parsedNotes });
+    };
+
+    const setInstrument = (instrument) => {
+        dispatch({ type: ACTIONS.SET_INSTRUMENT, payload: { instrument } });
+    };
+
     const value = {
         state,
         addNote,
         updateNote,
+        updateMultipleNotes,
+        addMultipleNotes,
         deleteNote,
         clearTrack,
         setBpm,
         setVisibleOctaves,
         setSnapResolution,
-        selectedNoteId,
-        setSelectedNoteId,
+        loadProject,
+        loadMML,
+        setInstrument,
+        setClipboard,
+        selectedNoteIds,
+        setSelectedNoteIds,
         totalCanvasBeats,
         pixelsPerBeat,
         setPixelsPerBeat
