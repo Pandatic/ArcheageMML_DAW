@@ -339,8 +339,9 @@ function App() {
     const mappedTracks = quantizeAndMapMidiTracks(midiData.rawMidi, midiTrackMappings, midiData.originalBpm);
     loadMidiData(mappedTracks, midiData.originalBpm);
 
-    if (mappedTracks && mappedTracks[0] && mappedTracks[0].notes) {
-      setTimeout(() => autoAdjustOctaves(mappedTracks[0].notes), 100);
+    const allMappedNotes = mappedTracks.flatMap(t => t.notes);
+    if (allMappedNotes.length > 0) {
+      setTimeout(() => autoAdjustOctaves(allMappedNotes), 100);
     }
 
     setShowMidiModal(false);

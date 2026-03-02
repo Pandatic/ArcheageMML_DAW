@@ -1,7 +1,8 @@
 /**
- * Evaluates an array of notes and flags any that exceed the 3-track polyphony limit.
+ * Evaluates an array of notes, assigns them to one of 3 ArcheAge tracks, 
+ * and flags any that exceed the 3-track polyphony limit.
  * @param {Array} notesArray - The array of note objects
- * @returns {Array} - The evaluated array with isIgnored flags populated
+ * @returns {Array} - The evaluated array with trackId and isIgnored flags populated
  */
 export function evaluatePolyphony(notesArray) {
     if (!notesArray) return [];
@@ -9,35 +10,46 @@ export function evaluatePolyphony(notesArray) {
     // Create a copy of the objects to avoid mutating state directly
     const evaluatedNotes = notesArray.map(note => ({ ...note }));
 
-    // Sort chronologically by start time
-    evaluatedNotes.sort((a, b) => a.startTime - b.startTime);
+    // Sort chronologically by start time, and then by pitch (highest to lowest) for consistent chord assignment
+    evaluatedNotes.sort((a, b) => {
+        if (a.startTime === b.startTime) {
+            // Give higher pitches priority for Track 1 (Melody)
+            const pitchA = parseInt(a.pitch.match(/\d+/)?.[0] || 0) * 12 + a.pitch.charCodeAt(0);
+            const pitchB = parseInt(b.pitch.match(/\d+/)?.[0] || 0) * 12 + b.pitch.charCodeAt(0);
+            return pitchB - pitchA;
+        }
+        return a.startTime - b.startTime;
+    });
 
-    // Keep track of all globally active notes to ensure ArcheAge's strict 3-note global polyphony limit
-    const globalActiveNotes = [];
+    // Track the exact end time of the notes currently occupying each of the 3 ArcheAge lanes
+    const trackEndTimes = { 1: 0, 2: 0, 3: 0 };
 
     for (let i = 0; i < evaluatedNotes.length; i++) {
         const note = evaluatedNotes[i];
+        let assignedTrack = null;
 
-        // 1. Clean up notes that have mathematically ended before this note begins
-        for (let j = globalActiveNotes.length - 1; j >= 0; j--) {
-            if (globalActiveNotes[j].endTime <= note.startTime + 0.0001) {
-                globalActiveNotes.splice(j, 1);
+        // 1. Find the first available track lane (1, 2, or 3)
+        for (let t = 1; t <= 3; t++) {
+            // We add a tiny 0.0001 epsilon to prevent microscopic floating point overlap collisions
+            if (trackEndTimes[t] <= note.startTime + 0.0001) {
+                assignedTrack = t;
+                break;
             }
         }
 
-        // 2. Overlap Checking Logic
-        if (globalActiveNotes.length >= 3) {
-            // There are already 3 notes actively playing across the entire DAW sequence.
-            // This 4th note is mathematically illegal for ArcheAge's compiler.
+        // 2. Overlap Checking & Lane Assignment
+        if (assignedTrack === null) {
+            // All 3 tracks are currently busy! This 4th note is mathematically illegal.
             note.isIllegal = true;
             note.isIgnored = true;
         } else {
-            // This space is free! It acts as a valid note.
+            // This lane is free! Assign the note to it.
             note.isIllegal = false;
             note.isIgnored = false;
+            note.trackId = assignedTrack; // This tells the Piano Roll to color it Blue, Green, or Purple
 
-            // We register this note as actively consumed
-            globalActiveNotes.push({ endTime: note.startTime + note.duration });
+            // Register this lane as occupied until the note finishes playing
+            trackEndTimes[assignedTrack] = note.startTime + note.duration;
         }
     }
 

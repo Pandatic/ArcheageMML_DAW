@@ -126,10 +126,12 @@ function applyGlobalPolyphony(state) {
 
     return {
         ...state,
-        tracks: state.tracks.map(track => ({
-            ...track,
-            notes: evaluatedNotes.filter(n => (n.trackId || 1) === track.id)
-        }))
+        tracks: state.tracks.map(track => {
+            if (track.id === 1) {
+                return { ...track, notes: evaluatedNotes };
+            }
+            return { ...track, notes: [] }; // Keep other tracks empty for state safety
+        })
     };
 }
 
