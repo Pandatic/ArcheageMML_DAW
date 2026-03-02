@@ -22,6 +22,7 @@ export function parseMMLToNotes(mmlString) {
         let volume = 127;
         let tempo = 120;
         let currentDefaultLength = 4;
+        let currentDefaultIsDotted = false;
 
         // Remove whitespace
         const mml = trackStr.replace(/\s+/g, '').toLowerCase();
@@ -56,7 +57,8 @@ export function parseMMLToNotes(mmlString) {
                 let numStr = '';
                 while (i < mml.length && /\d/.test(mml[i])) { numStr += mml[i]; i++; }
                 if (numStr) currentDefaultLength = parseInt(numStr, 10);
-                if (i < mml.length && mml[i] === '.') i++; // Consume dot if present
+                currentDefaultIsDotted = (i < mml.length && mml[i] === '.');
+                if (currentDefaultIsDotted) i++;
             }
             else if (char === '>') { i++; octave++; }
             else if (char === '<') { i++; octave--; }
@@ -65,8 +67,8 @@ export function parseMMLToNotes(mmlString) {
                 i++;
                 let numStr = '';
                 while (i < mml.length && /\d/.test(mml[i])) { numStr += mml[i]; i++; }
-                const isDotted = i < mml.length && mml[i] === '.';
-                if (isDotted) i++;
+                let isDotted = false;
+                if (i < mml.length && mml[i] === '.') { isDotted = true; i++; } else if (!numStr) { isDotted = currentDefaultIsDotted; }
 
                 const noteLen = numStr ? parseInt(numStr, 10) : currentDefaultLength;
                 const duration = getBeatsFromLength(noteLen, isDotted);
@@ -82,12 +84,12 @@ export function parseMMLToNotes(mmlString) {
                 let isFlat = false;
 
                 if (i < mml.length && (mml[i] === '#' || mml[i] === '+')) { isSharp = true; i++; }
-                else if (i < mml.length && (mml[i] === '-' || mml[i] === 'b')) { isFlat = true; i++; }
+                else if (i < mml.length && mml[i] === '-') { isFlat = true; i++; }
 
                 let numStr = '';
                 while (i < mml.length && /\d/.test(mml[i])) { numStr += mml[i]; i++; }
-                const isDotted = i < mml.length && mml[i] === '.';
-                if (isDotted) i++;
+                let isDotted = false;
+                if (i < mml.length && mml[i] === '.') { isDotted = true; i++; } else if (!numStr) { isDotted = currentDefaultIsDotted; }
 
                 const noteLen = numStr ? parseInt(numStr, 10) : currentDefaultLength;
                 const duration = getBeatsFromLength(noteLen, isDotted);

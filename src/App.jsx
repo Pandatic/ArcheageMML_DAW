@@ -153,6 +153,16 @@ function App() {
     };
   }, [state.tracks, state.snapResolution, state.clipboard, selectedNoteIds]);
 
+  // Auto-zoom out if the song length exceeds the maximum canvas width
+  useEffect(() => {
+    const currentWidth = totalCanvasBeats * pixelsPerBeat;
+    if (currentWidth > MAX_CANVAS_WIDTH) {
+      const safeZoom = Math.floor(MAX_CANVAS_WIDTH / totalCanvasBeats);
+      // Ensure it doesn't zoom out past a minimum readable threshold (e.g., 10px per beat)
+      setPixelsPerBeat(Math.max(10, safeZoom));
+    }
+  }, [totalCanvasBeats, pixelsPerBeat, setPixelsPerBeat]); // Only trigger when the song length changes
+
   const track1Notes = state.tracks[0].notes;
   const selectedNote = track1Notes.find(n => selectedNoteIds.includes(n.id));
 

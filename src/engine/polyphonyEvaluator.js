@@ -34,15 +34,21 @@ export function evaluatePolyphony(notesArray) {
             // We have available space. Claim a polyphony slot!
             note.isIgnored = false;
 
-            // Find the lowest available track ID (1, 2, or 3)
             const usedTrackIds = activeNotes.map(n => n.trackId);
-            let availableTrackId = 1;
-            while (usedTrackIds.includes(availableTrackId)) {
-                availableTrackId++;
+
+            // Try to keep the note in its intended track first
+            let targetTrackId = note.trackId || 1;
+
+            // If its intended track is busy, find the lowest available slot
+            if (usedTrackIds.includes(targetTrackId)) {
+                targetTrackId = 1;
+                while (usedTrackIds.includes(targetTrackId)) {
+                    targetTrackId++;
+                }
             }
 
-            note.trackId = availableTrackId;
-            activeNotes.push({ endTime: note.startTime + note.duration, trackId: availableTrackId });
+            note.trackId = targetTrackId;
+            activeNotes.push({ endTime: note.startTime + note.duration, trackId: targetTrackId });
         }
     }
 
