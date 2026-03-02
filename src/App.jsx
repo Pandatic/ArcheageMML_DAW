@@ -24,7 +24,7 @@ const getArtistryRank = (charCount) => {
 };
 
 function App() {
-  const { state, selectedNoteIds, setSelectedNoteIds, updateNote, setBpm, setVisibleOctaves, setSnapResolution, totalCanvasBeats, pixelsPerBeat, setPixelsPerBeat, loadProject, loadMML, setInstrument, addMultipleNotes, setClipboard } = useSequence();
+  const { state, selectedNoteIds, setSelectedNoteIds, updateNote, setBpm, setVisibleOctaves, setSnapResolution, totalCanvasBeats, pixelsPerBeat, setPixelsPerBeat, loadProject, loadMML, setInstrument, addMultipleNotes, setClipboard, trimSilence } = useSequence();
   const [compiledMML, setCompiledMML] = useState('');
   const [copyStatus, setCopyStatus] = useState('Copy MML to Clipboard');
   const [showVolumeLane, setShowVolumeLane] = useState(false);
@@ -347,6 +347,9 @@ function App() {
 
           <button onClick={() => document.getElementById('mml-upload').click()} style={{ padding: '8px 16px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}>
             Load .txt
+          </button>
+          <button onClick={trimSilence} style={{ padding: '8px 16px', backgroundColor: '#e09b2d', color: '#fff', border: '1px solid #555', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}>
+            Trim Silence
           </button>
           <input type="file" accept=".txt" id="mml-upload" style={{ display: 'none' }} onChange={handleFileUpload} />
         </div>

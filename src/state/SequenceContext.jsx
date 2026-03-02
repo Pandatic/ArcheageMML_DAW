@@ -108,7 +108,8 @@ export const ACTIONS = {
     SET_INSTRUMENT: 'SET_INSTRUMENT',
     UPDATE_MULTIPLE_NOTES: 'UPDATE_MULTIPLE_NOTES',
     ADD_MULTIPLE_NOTES: 'ADD_MULTIPLE_NOTES',
-    SET_CLIPBOARD: 'SET_CLIPBOARD'
+    SET_CLIPBOARD: 'SET_CLIPBOARD',
+    TRIM_SILENCE: 'TRIM_SILENCE'
 };
 
 // --- Reducer ---
@@ -263,6 +264,26 @@ function sequenceReducer(state, action) {
             };
         }
 
+        case ACTIONS.TRIM_SILENCE: {
+            let minStart = Infinity;
+            state.tracks.forEach(t => t.notes.forEach(n => { if (n.startTime < minStart) minStart = n.startTime; }));
+            if (minStart === Infinity || minStart === 0) return state;
+
+            // Strictly calculate full measures (4 beats per measure)
+            const trimAmount = Math.floor(minStart / 4) * 4;
+
+            // If there aren't any full measures of silence to trim, do nothing
+            if (trimAmount <= 0) return state;
+
+            return {
+                ...state,
+                tracks: state.tracks.map(t => ({
+                    ...t,
+                    notes: evaluatePolyphony(t.notes.map(n => ({ ...n, startTime: n.startTime - trimAmount })))
+                }))
+            };
+        }
+
         case ACTIONS.SET_BPM: {
             const rawBpm = action.payload.bpm;
             // Clamp BPM strictly to ArcheAge limits (32 to 255)
@@ -379,6 +400,8 @@ export function SequenceProvider({ children }) {
         dispatch({ type: ACTIONS.ADD_MULTIPLE_NOTES, payload: { trackId: 1, notes: notesArray } });
     };
 
+    const trimSilence = () => dispatch({ type: ACTIONS.TRIM_SILENCE });
+
     const setClipboard = (clipboardData) => {
         dispatch({ type: ACTIONS.SET_CLIPBOARD, payload: { clipboardData } });
     };
@@ -431,6 +454,7 @@ export function SequenceProvider({ children }) {
         loadMML,
         setInstrument,
         setClipboard,
+        trimSilence,
         selectedNoteIds,
         setSelectedNoteIds,
         totalCanvasBeats,
