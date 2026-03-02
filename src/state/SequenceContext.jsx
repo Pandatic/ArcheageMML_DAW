@@ -434,11 +434,13 @@ export function SequenceProvider({ children }) {
 
     const loadProject = (parsedData) => {
         dispatch({ type: ACTIONS.LOAD_PROJECT, payload: parsedData });
+        return parsedData;
     };
 
     const loadMML = (mmlString) => {
         const parsedNotes = parseMMLToNotes(mmlString);
         dispatch({ type: ACTIONS.LOAD_MML, payload: parsedNotes });
+        return parsedNotes;
     };
 
     const setInstrument = (instrument) => {

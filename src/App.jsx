@@ -30,7 +30,13 @@ function App() {
   const [showVolumeLane, setShowVolumeLane] = useState(false);
   const [showTempoLane, setShowTempoLane] = useState(false);
   const [isInstrumentLoading, setIsInstrumentLoading] = useState(false);
+  const [showMMLModal, setShowMMLModal] = useState(false);
+  const [theme, setTheme] = useState('midnight');
   const scrollWrapperRef = useRef(null);
+
+  useEffect(() => {
+    document.body.setAttribute('data-theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     setIsInstrumentLoading(true);
@@ -38,6 +44,15 @@ function App() {
       setIsInstrumentLoading(false);
     });
   }, [state.instrument]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      // Trigger a re-render to update canvas widths
+      setPixelsPerBeat(prev => prev);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const handleWheel = (e) => {
@@ -206,6 +221,19 @@ function App() {
     setCompiledMML(compiledMMLTracks.filter(track => track.trim() !== '').join(','));
   }, [state.bpm, track1Notes]);
 
+  const autoAdjustOctaves = (notes) => {
+    if (!notes || notes.length === 0) return;
+    const octaves = notes.map(n => n.octave);
+    const minO = Math.min(...octaves);
+    const maxO = Math.max(...octaves);
+
+    // Add a 1-octave buffer if possible
+    const newMin = Math.max(0, minO - 1);
+    const newMax = Math.min(10, maxO + 1);
+
+    setVisibleOctaves(newMin, newMax);
+  };
+
   const handleMinOctaveChange = (e) => {
     let newMin = parseInt(e.target.value, 10);
     let currentMax = state.visibleMaxOctave;
@@ -262,6 +290,9 @@ function App() {
       try {
         const parsedData = JSON.parse(event.target.result);
         loadProject(parsedData);
+        if (parsedData.tracks && parsedData.tracks[0] && parsedData.tracks[0].notes) {
+          autoAdjustOctaves(parsedData.tracks[0].notes);
+        }
       } catch (err) {
         console.error("Failed to load project", err);
       }
@@ -276,7 +307,8 @@ function App() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        loadMML(event.target.result);
+        const newNotes = loadMML(event.target.result);
+        autoAdjustOctaves(newNotes);
       } catch (err) {
         console.error("Failed to parse MML", err);
       }
@@ -312,6 +344,7 @@ function App() {
             <button onClick={() => document.getElementById('mml-upload').click()} style={{ padding: '6px 12px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Import .txt</button>
             <input type="file" accept=".txt" id="mml-upload" style={{ display: 'none' }} onChange={handleFileUpload} />
             <button onClick={trimSilence} style={{ padding: '6px 12px', backgroundColor: '#e09b2d', color: '#fff', border: '1px solid #555', cursor: 'pointer', borderRadius: '4px', fontSize: '12px' }}>Trim</button>
+            <button onClick={() => setShowMMLModal(true)} style={{ padding: '6px 12px', backgroundColor: '#4facfe', color: '#000', border: 'none', cursor: 'pointer', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', marginLeft: '10px' }}>Export MML</button>
           </div>
 
           <div style={{ width: '1px', height: '20px', backgroundColor: '#555' }} /> {/* Divider */}
@@ -334,7 +367,7 @@ function App() {
           </div>
         </div>
 
-        {/* Right Zone: Tools & Instrument */}
+        {/* Right Zone: Tools, Instrument & Live Stats */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px', fontSize: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <label>Octaves:</label>
@@ -359,19 +392,34 @@ function App() {
             <input type="range" min="20" max={Math.min(240, Math.floor(MAX_CANVAS_WIDTH / totalCanvasBeats))} value={pixelsPerBeat} onChange={(e) => setPixelsPerBeat(Number(e.target.value))} style={{ width: '80px' }} />
           </div>
 
-          <div style={{ width: '1px', height: '20px', backgroundColor: '#555' }} /> {/* Divider */}
-
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <select value={state.instrument} onChange={(e) => setInstrument(e.target.value)} style={{ padding: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '3px' }}>
               <option value="Piano">Piano</option><option value="Lute">Lute</option>
             </select>
             {isInstrumentLoading && <span style={{ color: '#ffb347', fontStyle: 'italic' }}>Loading...</span>}
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <select value={theme} onChange={(e) => setTheme(e.target.value)} style={{ padding: '4px', backgroundColor: 'var(--btn-bg, #333)', color: 'var(--text-main, #fff)', border: '1px solid var(--border-color, #555)', borderRadius: '3px' }}>
+              <option value="midnight">Midnight</option>
+              <option value="classic">ArcheAge</option>
+              <option value="light">Light</option>
+            </select>
+          </div>
+
+          <div style={{ width: '1px', height: '20px', backgroundColor: '#555' }} /> {/* Divider */}
+
+          {/* Live Stats display replacing the bottom stats bar */}
+          <div style={{ display: 'flex', alignItems: 'center', fontSize: '12px', fontWeight: 'bold', backgroundColor: '#111', padding: '4px 10px', borderRadius: '4px', border: '1px solid #333' }}>
+            <span style={{ color: '#aaa' }}>Chars: {compiledMML.length}/{rankInfo.max} </span>
+            <span style={{ color: '#444', margin: '0 8px' }}>|</span>
+            <span style={{ color: rankInfo.color }}>{rankInfo.rank}</span>
+          </div>
         </div>
       </div>
 
-      {/* Core Sequence Editor Layout */}
-      <div style={{ display: 'flex', flexDirection: 'row', flex: 1, backgroundColor: 'var(--bg-main, #111)', overflow: 'hidden' }}>
+      {/* Core Sequence Editor Layout - FIX: overflowY set to auto instead of hidden! */}
+      <div style={{ display: 'flex', flexDirection: 'row', flex: 1, backgroundColor: 'var(--bg-main, #111)', overflowY: 'auto', overflowX: 'hidden' }}>
         {/* Pillar A: Frozen Sidebar (Headers) */}
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, width: '60px', backgroundColor: '#222' }}>
           {/* Tempo Spacer mapped to match exact canvas height & margins */}
@@ -381,7 +429,7 @@ function App() {
             </div>
           )}
 
-          <PianoKeys />
+          <PianoKeys octaveRange={{ min: state.visibleMinOctave, max: state.visibleMaxOctave }} />
 
           {/* Volume Spacers mapped to match exact canvas heights & margins per lane */}
           {showVolumeLane && activeTrackIds.map(id => {
@@ -408,7 +456,7 @@ function App() {
             {showTempoLane && <TempoLane />}
 
             {/* The Piano Roll UI */}
-            <PianoRoll />
+            <PianoRoll octaveRange={{ min: state.visibleMinOctave, max: state.visibleMaxOctave }} />
 
             {/* Volume Automation Lanes */}
             {showVolumeLane && activeTrackIds.map(id => (
@@ -420,35 +468,30 @@ function App() {
 
 
 
-      {/* MML Export Output */}
-      <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#222', borderRadius: '4px', border: '1px solid #444' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <h3 style={{ margin: 0, color: '#fff' }}>Export MML</h3>
-          <div style={{ fontSize: '14px', fontWeight: 'bold', backgroundColor: '#111', padding: '6px 12px', borderRadius: '4px', border: '1px solid #333' }}>
-            <span style={{ color: '#aaa' }}>Characters: {compiledMML.length} / {rankInfo.max} </span>
-            <span style={{ color: '#444', margin: '0 10px' }}>|</span>
-            <span style={{ color: '#aaa' }}>Required Artistry: </span>
-            <span style={{ color: rankInfo.color }}>{rankInfo.rank}</span>
+      {/* Modal Overlay for Exporting MML */}
+      {showMMLModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ width: '600px', backgroundColor: 'var(--bg-toolbar, #222)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color, #444)', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h2 style={{ margin: 0, color: 'var(--text-main, #fff)', fontSize: '18px' }}>Export MML</h2>
+              <button onClick={() => setShowMMLModal(false)} style={{ backgroundColor: 'transparent', border: 'none', color: 'var(--text-muted, #aaa)', fontSize: '20px', cursor: 'pointer' }}>&times;</button>
+            </div>
+            <textarea
+              readOnly
+              value={compiledMML}
+              style={{ width: '100%', height: '150px', marginBottom: '15px', padding: '10px', backgroundColor: 'var(--bg-main, #111)', color: 'var(--text-main, #00ddff)', border: '1px solid var(--border-color, #555)', borderRadius: '4px', resize: 'vertical', fontFamily: 'monospace', boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={handleDownloadMML} style={{ padding: '8px 16px', backgroundColor: '#bf47ff', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
+                Download .txt
+              </button>
+              <button onClick={handleCopy} style={{ padding: '8px 16px', backgroundColor: copyStatus === 'Copied!' ? '#43e97b' : '#4facfe', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}>
+                {copyStatus}
+              </button>
+            </div>
           </div>
         </div>
-        <textarea
-          readOnly
-          value={compiledMML}
-          style={{ width: '100%', height: '60px', marginBottom: '10px', padding: '10px', backgroundColor: '#111', color: '#00ddff', border: '1px solid #555', borderRadius: '4px', resize: 'vertical', fontFamily: 'monospace' }}
-        />
-        <button
-          onClick={handleCopy}
-          style={{ padding: '10px 20px', backgroundColor: copyStatus === 'Copied!' ? '#43e97b' : '#4facfe', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px', marginRight: '10px' }}
-        >
-          {copyStatus}
-        </button>
-        <button
-          onClick={handleDownloadMML}
-          style={{ padding: '10px 20px', backgroundColor: '#bf47ff', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 'bold', borderRadius: '4px' }}
-        >
-          Download .txt
-        </button>
-      </div>
+      )}
     </div>
   );
 }
